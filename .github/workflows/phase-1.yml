@@ -1,0 +1,59 @@
+name: CivicFix AI checks
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: civicfix_test
+          POSTGRES_PASSWORD: civicfix-test-only
+          POSTGRES_DB: civicfix_ai_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U civicfix_test -d civicfix_ai_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      APP_ENV: test
+      SECRET_KEY: ci-only-signing-key-for-postgres-integration
+      DATABASE_URL: postgresql+psycopg://civicfix_test:civicfix-test-only@localhost:5432/civicfix_ai_test
+      TEST_DATABASE_URL: postgresql+psycopg://civicfix_test:civicfix-test-only@localhost:5432/civicfix_ai_test
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e '.[test]'
+      - run: python -m alembic upgrade head
+      - run: python -m alembic check
+      - run: python -m pytest
